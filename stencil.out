@@ -1,0 +1,11 @@
+Running on host compute090.bc4.acrc.priv
+Time is Thu Oct 24 13:08:46 BST 2019
+Directory is /mnt/storage/home/tj17908/stencil/CW1
+Slurm job ID is 2604875
+
+This job runs on the following machines:
+compute090
+
+------------------------------------
+ runtime: 11.394323 s
+------------------------------------
