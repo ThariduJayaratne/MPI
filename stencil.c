@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
+#define NROWS 256
+#define NCOLS 1024
+#define MASTER 0
 // Define output file name
 #define OUTPUT_FILE "stencil.pgm"
 
@@ -13,18 +16,46 @@ void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 double wtime(void);
 
+int calc_ncols_from_rank(int rank, int size);
+
 int main(int argc, char* argv[])
 {
+   int rank;              /* the rank of this process */
+   int up;              /* the rank of the process to the left */
+   int down;             /* the rank of the process to the right */
+   int size;              /* number of processes in the(local_nrows + local_ncols)*local_nrows) communicator */
+   int tag = 0;           /* scope for adding extra information to a message */
+   MPI_Status status;     /* struct used by MPI_Recv */
+   int local_nrows;       /* number of rows apportioned to this rank */
+   int local_ncols;       /* number of columns apportioned to this rank */
+   int remote_ncols;      /* number of columns apportioned to a remote rank */
+   double *sendbuf= (double*)malloc(sizeof(double) * local_nrows);       /* buffer to hold values to send */
+   double *recvbuf= (double*)malloc(sizeof(double) * local_ncols);       /* buffer to hold received values */
   // Check usage
+  MPI_Init( &argc, &argv );
+  MPI_Comm_size( MPI_COMM_WORLD, &size );
+  MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+
   if (argc != 4) {
     fprintf(stderr, "Usage: %s nx ny niters\n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
+  up = (rank == MASTER) ? (rank + size - 1) : (rank - 1);
+  down = (rank + 1) % size;
   // Initiliase problem dimensions from command line arguments
   int nx = atoi(argv[1]);
   int ny = atoi(argv[2]);
-  int niters = atoi(argv[3]);
+  int niters = 4;
+
+  //for each section
+  int local_nrows = nx/4;
+  int local_ncols = ny + 2;
+  if (local_ncols < 1) {
+    fprintf(stderr,"Error: too many processes:- local_ncols < 1\n");
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
+  // remote_ncols = calc_ncols_from_rank(size-1, size);
 
   // we pad the outer edge of the image to avoid out of range address issues in
   // stencil
@@ -34,9 +65,30 @@ int main(int argc, char* argv[])
   // Allocate the image
   float* image = malloc(sizeof(double) * width * height);
   float* tmp_image = malloc(sizeof(double) * width * height);
+  float* section = malloc(sizeof(double) * local_nrows * local_ncols);
+  float* tmp_section = malloc(sizeof(double) * local_nrows * local_ncols);
 
   // Set the input image
   init_image(nx, ny, width, height, image, tmp_image);
+
+  int lastposition = ((local_nrows * local_ncols)/4)
+  //initialize kernel
+  if(rank == MASTER){
+    for(int i = 0;i<lastposition;i++){
+      section[i] = image[i];
+    }
+  }
+  else if(rank != MASTER && rank <3){
+    for(int j = lastposition;j<(lastposition*(rank +1));j++){
+      section[j] = image[j];
+    }
+  }
+  else if(rank == 3){
+    for(int k = lastposition * 3;k<(local_nrows * local_ncols);k++){
+      section[k] = image[k];
+    }
+  }
+  }
 
   // Call the stencil kernel
   double tic = wtime();
@@ -139,3 +191,15 @@ double wtime(void)
   return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+int calc_ncols_from_rank(int rank, int size, int width)
+{
+  int ncols;
+
+  ncols = width / size;       /* integer division */
+  if ((width % size) != 0) {  /* if there is a remainder */
+    if (rank == size - 1)
+      ncols += width % size;  /* add remainder to last rank */
+  }
+
+  return ncols;
+}
