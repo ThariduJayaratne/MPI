@@ -7,7 +7,7 @@
 // #define NCOLS
 #define MASTER 0
 
-int calc_ncols_from_rank(int rank, int size);
+int calc_nrows_from_rank(int rank, int size, int nx);
 
 // Define output file name
 #define OUTPUT_FILE "stencil.pgm"
@@ -20,6 +20,15 @@ void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 double wtime(void);
 
+int calc_nrows_from_rank(int rank, int size, int nx)
+{
+  int nrows = nx / size;       /* integer division */
+  if ((nx % size) != 0) {  /* if there is a remainder */
+    if (rank == size - 1)
+      nrows += nx % size;  /* add remainder to last rank */
+  }
+  return nrows;
+}
 int main(int argc, char* argv[])
 {
   int ii,jj;             /* row and column indices for the grid */
@@ -56,7 +65,7 @@ int main(int argc, char* argv[])
   int ny = atoi(argv[2]);
   int niters = atoi(argv[3]);
 
-  local_nrows = calc_nrows_from_rank(rank, size)+2;
+  local_nrows = calc_nrows_from_rank(rank, size,nx)+2;
   local_ncols = ny + 2;
   if (local_ncols < 1) {
     fprintf(stderr,"Error: too many processes:- local_ncols < 1\n");
@@ -80,12 +89,14 @@ int main(int argc, char* argv[])
 
   for(int ii=0;ii<local_nrows;ii++) {
    for(int jj=0; jj<local_ncols; jj++) {
-     if (jj > 0 && jj < (local_ncols))
+     if (jj > 0 && jj < (local_ncols)){
           section[ii * (local_ncols) + jj] = image[jj + (ii*local_ncols) + (rank*(local_nrows - 2)*(local_ncols))];
           tmp_section[ii * (local_ncols) + jj] = image[jj + (ii*local_ncols) + (rank*(local_nrows - 2)*(local_ncols))];
-     else if (jj == 0 || jj == (local_ncols + 1))
+          }
+     else if (jj == 0 || jj == (local_ncols + 1)){
             section[ii * (local_ncols + 2) + jj] = 0;
             tmp_section[ii * (local_ncols + 2) + jj] = 0;
+            }
  }
 }
 
@@ -107,7 +118,7 @@ int main(int argc, char* argv[])
         image[j + (i*local_ncols)] = section[i * (local_ncols) + j];
       }
     }
-    for(kk = 1;kk<size;kk++){
+    for(int kk = 1;kk<size;kk++){
       int nrows = calc_nrows_from_rank(kk,size,nx);
       for(int i =0;i<nrows;i++){
         MPI_Recv(&image[ ((kk * local_nrows) + i) * width + 1], local_ncols, MPI_FLOAT, kk, tag, MPI_COMM_WORLD, &status);
@@ -116,20 +127,24 @@ int main(int argc, char* argv[])
 
   }
   else{
+  for(int i =0;i<local_nrows - 2;i++){
         MPI_Send(&section[i * (local_ncols) + 1], local_ncols, MPI_FLOAT, MASTER, tag, MPI_COMM_WORLD);
+      }
   }
   // Output
 if(rank == MASTER ){
   printf("------------------------------------\n");
   printf(" runtime: %lf s\n", toc - tic);
-  printf("------------------------------------\n");}
+  printf("------------------------------------\n");
   output_image(OUTPUT_FILE, nx, ny, width, height, image);
+  }
+  MPI_Finalize();
   free(image);
   free(tmp_image);
   free(section);
   free(tmp_section);
-  MPI_Finalize();
 }
+
 
 void stencil(const int nx, const int ny, const int width, const int height,
              float* image, float* tmp_image)
@@ -213,12 +228,5 @@ double wtime(void)
   gettimeofday(&tv, NULL);
   return tv.tv_sec + tv.tv_usec * 1e-6;
 }
-int calc_ncols_from_rank(int rank, int size, int nx)
-{
-  ncols = nx / size;       /* integer division */
-  if ((nx % size) != 0) {  /* if there is a remainder */
-    if (rank == size - 1)
-      ncols += nx % size;  /* add remainder to last rank */
-  }
-  return ncols;
-}
+
+

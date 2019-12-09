@@ -1,0 +1,9 @@
+Running on host compute084.bc4.acrc.priv
+Time is Mon Dec  9 09:41:18 GMT 2019
+Directory is /mnt/storage/home/tj17908/CW2/MPI
+Slurm job ID is 2877916
+
+This job runs on the following machines:
+compute084
+
+srun: error: compute084: tasks 0-3: Segmentation fault
