@@ -65,37 +65,42 @@ int main(int argc, char* argv[])
   int ny = atoi(argv[2]);
   int niters = atoi(argv[3]);
 
-  local_nrows = calc_nrows_from_rank(rank, size,nx)+2;
-  local_ncols = ny + 2;
-  if (local_ncols < 1) {
-    fprintf(stderr,"Error: too many processes:- local_ncols < 1\n");
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-  }
   // we pad the outer edge of the image to avoid out of range address issues in
   // stencil
   int width = nx + 2;
   int height = ny + 2;
 
+  local_nrows = calc_nrows_from_rank(rank, size,nx);
+  local_ncols = ny;
+  if (local_nrows < 1) {
+    fprintf(stderr,"Error: too many processes:- local_ncols < 1\n");
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
+
+
   // Allocate the image
   float* image = malloc(sizeof(double) * width * height);
   float* tmp_image = malloc(sizeof(double) * width * height);
-  float *section = malloc(sizeof(double) * local_nrows * local_ncols);
-  float *tmp_section = malloc(sizeof(double) * local_nrows * local_ncols);
+
   // double* sendbuf  = malloc(sizeof(double) * local_ncols);
   // double* recvbuf  = malloc(sizeof(double) * local_ncols);
 
   // Set the input image
   init_image(nx, ny, width, height, image, tmp_image);
 
-  for(int ii=0;ii<local_nrows;ii++) {
-   for(int jj=0; jj<local_ncols; jj++) {
-     if (jj > 0 && jj < (local_ncols)){
-          section[ii * (local_ncols) + jj] = image[jj + (ii*local_ncols) + (rank*(local_nrows - 2)*(local_ncols))];
-          tmp_section[ii * (local_ncols) + jj] = image[jj + (ii*local_ncols) + (rank*(local_nrows - 2)*(local_ncols))];
+  float* section = malloc(sizeof(double) * (local_nrows+2) * (local_ncols+2));
+  float* tmp_section = malloc(sizeof(double) * (local_nrows+2) * (local_ncols+2));
+
+  int part = nx/size;
+  for(int ii=0;ii<local_nrows + 2;ii++) {
+   for(int jj=0; jj<local_ncols + 2; jj++) {
+     if (jj > 0 && jj < (local_ncols+1) && ii > 0 && ii < (local_nrows+1)){
+          section[jj + ii * (local_ncols+2) ] = image[(jj + ii* width  + (rank*part*width))];
+          tmp_section[jj + ii * (local_ncols+2)] = image[(jj + ii *width + (rank*part*width))];
           }
-     else if (jj == 0 || jj == (local_ncols + 1)){
-            section[ii * (local_ncols + 2) + jj] = 0;
-            tmp_section[ii * (local_ncols + 2) + jj] = 0;
+     else {
+            section[jj + ii * (local_ncols+2) ] = 0;
+            tmp_section[jj + ii * (local_ncols+2) ] = 0;
             }
  }
 }
@@ -103,32 +108,32 @@ int main(int argc, char* argv[])
   // Call the stencil kernel
   double tic = wtime();
   for (int t = 0; t < niters; ++t) {
-    MPI_Sendrecv(&section[(local_ncols+1)], local_ncols, MPI_FLOAT, up, tag, &section[local_nrows-1 * local_ncols+1], local_ncols, MPI_FLOAT, down, tag, MPI_COMM_WORLD, &status);
-    MPI_Sendrecv(&section[local_nrows-1 * local_ncols+1], local_ncols, MPI_FLOAT, down, tag, &section[1], local_ncols, MPI_FLOAT, up, tag, MPI_COMM_WORLD, &status);
-    stencil(local_nrows-2, local_ncols-2, width, height, section, tmp_section);
-    MPI_Sendrecv(&tmp_section[(local_ncols+1)], local_ncols, MPI_FLOAT, up, tag, &tmp_section[local_nrows-1 * local_ncols+1], local_ncols, MPI_FLOAT, down, tag, MPI_COMM_WORLD, &status);
-    MPI_Sendrecv(&tmp_section[local_nrows-1 * local_ncols+1], local_ncols, MPI_FLOAT, down, tag, &tmp_section[1], local_ncols, MPI_FLOAT, up, tag, MPI_COMM_WORLD, &status);
-    stencil(local_nrows-2, local_ncols-2, width, height, tmp_section, section);
+    MPI_Sendrecv(&section[(local_ncols+3)], local_ncols, MPI_FLOAT, up, tag, &section[(local_nrows+1) * (local_ncols+2) + 1], local_ncols, MPI_FLOAT, down, tag, MPI_COMM_WORLD, &status);
+    MPI_Sendrecv(&section[(local_nrows) * (local_ncols+2) + 1], local_ncols, MPI_FLOAT, down, tag, &section[1], local_ncols, MPI_FLOAT, up, tag, MPI_COMM_WORLD, &status);
+    stencil(local_nrows, local_ncols, width, height, section, tmp_section);
+    MPI_Sendrecv(&tmp_section[(local_ncols+3)], local_ncols, MPI_FLOAT, up, tag, &tmp_section[(local_nrows+1) * (local_ncols+2) + 1], local_ncols, MPI_FLOAT, down, tag, MPI_COMM_WORLD, &status);
+    MPI_Sendrecv(&tmp_section[(local_nrows) * (local_ncols+2) + 1], local_ncols, MPI_FLOAT, down, tag, &tmp_section[1], local_ncols, MPI_FLOAT, up, tag, MPI_COMM_WORLD, &status);
+    stencil(local_nrows, local_ncols, width, height, tmp_section, section);
   }
   double toc = wtime();
 
   if(rank == MASTER){
-    for(int i=0;i<local_nrows;i++){
-      for(int j=0;j<local_ncols;j++){
-        image[j + (i*local_ncols)] = section[i * (local_ncols) + j];
+    for(int i=1;i<local_nrows+1;i++){
+      for(int j=1;j<local_ncols+1;j++){
+        image[j + (i*width)] = section[j + i *(local_ncols + 2) ];
       }
     }
     for(int kk = 1;kk<size;kk++){
       int nrows = calc_nrows_from_rank(kk,size,nx);
-      for(int i =0;i<nrows;i++){
+      for(int i =1;i<nrows+1;i++){
         MPI_Recv(&image[ ((kk * local_nrows) + i) * width + 1], local_ncols, MPI_FLOAT, kk, tag, MPI_COMM_WORLD, &status);
       }
     }
 
   }
   else{
-  for(int i =0;i<local_nrows - 2;i++){
-        MPI_Send(&section[i * (local_ncols) + 1], local_ncols, MPI_FLOAT, MASTER, tag, MPI_COMM_WORLD);
+  for(int i =1;i<local_nrows + 1;i++){
+        MPI_Send(&section[i * (local_ncols + 2) + 1], local_ncols, MPI_FLOAT, MASTER, tag, MPI_COMM_WORLD);
       }
   }
   // Output
@@ -149,10 +154,10 @@ if(rank == MASTER ){
 void stencil(const int nx, const int ny, const int width, const int height,
              float* image, float* tmp_image)
 {
-  for (int i = 1; i < ny - 1; ++i) {
-    for (int j = 1; j < nx - 1; ++j) {
-	int x = j+i*height;
-	tmp_image[x]=(image[x]*0.6f)+((image[x-1]+image[x+1]+image[x+height]+image[x-height])*0.1f);
+  for (int i = 1; i < nx + 1; ++i) {
+    for (int j = 1; j < ny + 1; ++j) {
+	int x = j+i*(ny + 2);
+	tmp_image[x]=(image[x]*0.6f)+((image[x-1]+image[x+1]+image[x+(ny + 2)]+image[x-(ny + 2)])*0.1f);
     }
   }
 }
@@ -228,5 +233,4 @@ double wtime(void)
   gettimeofday(&tv, NULL);
   return tv.tv_sec + tv.tv_usec * 1e-6;
 }
-
 
