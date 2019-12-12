@@ -1,7 +1,6 @@
 #!/bin/bash
 
-#SBATCH --nodes 1
-#SBATCH --ntasks-per-node 16
+#SBATCH --nodes 2
 #SBATCH --partition veryshort
 #SBATCH --reservation COMS30005
 #SBATCH --account COMS30005
@@ -32,6 +31,9 @@ export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
 
 # Run the parallel MPI executable
 # Just run the first binary: change this line to try out the others
-srun ./stencil 1024 1024 100
+for value in {44..56}
+do
+  srun -n $value ./stencil 1024 1024 100
+done 
 
-
+echo timings done

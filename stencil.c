@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
             }
  }
 }
-
+  MPI_Barrier(MPI_COMM_WORLD);
   // Call the stencil kernel
   double tic = wtime();
   for (int t = 0; t < niters; ++t) {
@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
     stencil(local_nrows, local_ncols, width, height, tmp_section, section);
   }
   double toc = wtime();
-
+  MPI_Barrier(MPI_COMM_WORLD);
   if(rank == MASTER){
     for(int i=1;i<local_nrows+1;i++){
       for(int j=1;j<local_ncols+1;j++){
